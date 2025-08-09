@@ -3,7 +3,10 @@ package main
 import (
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
@@ -45,34 +48,59 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 
 	// `file` is an `io.Reader` that we can read from to get the image data
 
-	media_type := header.Header.Get("Content-Type")
-	image_data, err := io.ReadAll(file)
-	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "Unable to read image data", err)
-		return
-	}
+	content_type := header.Header.Get("Content-Type")
+
 	video_metadata, err := cfg.db.GetVideo(videoID)
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Unable to retrieve video metadata", err)
 		return
 	}
+
 	if userID != video_metadata.UserID {
 		respondWithError(w, http.StatusUnauthorized, "Unauthorized user", err)
 		return
 	}
-	new_thumbnail := thumbnail{
-		data:      image_data,
-		mediaType: media_type,
+
+	extensions, err := mime.ExtensionsByType(content_type)
+	var extension string
+	if len(extensions) > 0 {
+		extension = extensions[0]
+	} else {
+		respondWithError(w, http.StatusBadRequest, "Filetype error", err)
+		return
 	}
-	videoThumbnails[videoID] = new_thumbnail
-	url := fmt.Sprintf("http://localhost:%s/api/thumbnails/%s", cfg.port, videoID)
-	video_metadata.ThumbnailURL = &url
-	err = cfg.db.UpdateVideo(video_metadata)
+	new_file_path := filepath.Join(cfg.assetsRoot, videoIDString+extension)
+
+	new_file, err := os.Create(new_file_path)
 	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "Unable to update thumbnail URL", err)
-		delete(videoThumbnails, videoID)
+		respondWithError(w, http.StatusInternalServerError, "Creation error", err)
 		return
 	}
 
+	media_type, _, err := mime.ParseMediaType(content_type)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error parsing media type", err)
+		return
+	}
+	if media_type != "image/jpeg" && media_type != "image/png" {
+		respondWithError(w, http.StatusBadRequest, "Incorrect file type", nil)
+		return
+	}
+
+	if _, err := io.Copy(new_file, file); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Copy error", err)
+		return
+	}
+	defer new_file.Close()
+
+	s := fmt.Sprintf("http://localhost:%s/assets/%s%s", cfg.port, videoIDString, extension)
+	video_metadata.ThumbnailURL = &s
+
+	err = cfg.db.UpdateVideo(video_metadata)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Unable to update thumbnail URL", err)
+		return
+	}
+	fmt.Println(*video_metadata.ThumbnailURL)
 	respondWithJSON(w, http.StatusOK, video_metadata)
 }

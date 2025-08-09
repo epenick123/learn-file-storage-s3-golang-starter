@@ -101,6 +101,5 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusBadRequest, "Unable to update thumbnail URL", err)
 		return
 	}
-	fmt.Println(*video_metadata.ThumbnailURL)
 	respondWithJSON(w, http.StatusOK, video_metadata)
 }

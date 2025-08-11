@@ -1,12 +1,13 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"mime"
 	"net/http"
 	"os"
-	"path/filepath"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
@@ -69,9 +70,21 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusBadRequest, "Filetype error", err)
 		return
 	}
-	new_file_path := filepath.Join(cfg.assetsRoot, videoIDString+extension)
+	// Generate random bytes
+	new_key := make([]byte, 32)
+	_, err = rand.Read(new_key)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Creation error", err)
+		return
+	}
 
-	new_file, err := os.Create(new_file_path)
+	// Encode to base64 string
+	new_file_name := base64.RawURLEncoding.EncodeToString(new_key)
+
+	// Create filepath
+	new_file_path := new_file_name + extension
+
+	new_file, err := os.Create("./assets/" + new_file_path)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Creation error", err)
 		return
@@ -93,7 +106,7 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	}
 	defer new_file.Close()
 
-	s := fmt.Sprintf("http://localhost:%s/assets/%s%s", cfg.port, videoIDString, extension)
+	s := fmt.Sprintf("http://localhost:%s/assets/%s%s", cfg.port, new_file_name, extension)
 	video_metadata.ThumbnailURL = &s
 
 	err = cfg.db.UpdateVideo(video_metadata)
